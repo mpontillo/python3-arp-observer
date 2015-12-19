@@ -17,9 +17,9 @@ class ARP:
         :type pkt_bytes: bytes
         :param time: Timestamp packet was seen (format is undefined)
         :type time: str
-        :param src_mac: Source MAC address.
+        :param src_mac: Source MAC address from Ethernet header.
         :type src_mac: str
-        :param dst_mac: Desination MAC address.
+        :param dst_mac: Desination MAC address from Ethernet header.
         :type dst_mac: str
         :return:
         """
@@ -40,35 +40,68 @@ class ARP:
 
     @property
     def source_eui(self):
+        """Returns a netaddr.EUI representing the source MAC address."""
         return netaddr.EUI(
             int(codecs.encode(self.sender_hardware_bytes, 'hex'), 16))
 
     @property
     def target_eui(self):
+        """Returns a netaddr.EUI representing the target MAC address."""
         return netaddr.EUI(
             int(codecs.encode(self.target_hardware_bytes, 'hex'), 16))
 
     @property
     def source_ip(self):
+        """Returns a netaddr.IPAddress representing the source IP address."""
         return netaddr.IPAddress(self.sender_protocol_bytes)
 
     @property
     def target_ip(self):
+        """Returns a netaddr.IPAddress representing the target IP address."""
         return netaddr.IPAddress(self.target_protocol_bytes)
 
+    def is_valid(self):
+        """Only (Ethernet MAC, IPv4) bindings are currently supported. This
+        method ensures this ARP packet specifies those types.
+        """
+        if self.hardware_type != 1:
+            return False
+        if self.protocol_type != 0x800:
+            return False
+        if self.hardware_length != 6:
+            return False
+        if self.protocol_length != 4:
+            return False
+        return True
+
     def bindings(self):
+        """Yields each (MAC, IP) binding found in this ARP packet."""
+        if not self.is_valid():
+            return
+
         if self.operation == 1:
             # This is an ARP request.
             # We can find a binding in the (source_eui, source_ip)
-            yield (self.source_eui, self.source_ip)
+            source_ip = self.source_ip
+            if int(source_ip) != 0:
+                yield (self.source_eui, source_ip)
         elif self.operation == 2:
             # This is an ARP reply.
             # We can find a binding in both the (source_eui, source_ip) and
             # the (target_eui, target_ip).
-            yield (self.source_eui, self.source_ip)
-            yield (self.target_eui, self.target_ip)
+            source_ip = self.source_ip
+            target_ip = self.target_ip
+            if int(source_ip) != 0:
+                yield (self.source_eui, source_ip)
+            if int(target_ip) != 0:
+                yield (self.target_eui, target_ip)
 
     def write(self, out=sys.stdout):
+        """Output text-based details about this ARP packet to the specified
+        file or stream.
+
+        :param out: An object with a `write(str)` method.
+        """
         if self.time is not None:
             out.write("ARP observed at %s:\n" % self.time)
         if self.src_mac is not None:
@@ -98,6 +131,11 @@ class ARP:
 
 
 def main(argv):
+    """Main entry point. Ensure stdin is a pipe, then check command-line
+    arguments and run the ARP observation loop.
+
+    :param argv: The contents of sys.argv.
+    """
     mode = os.fstat(0).st_mode
     if not stat.S_ISFIFO(mode):
         print("Usage:")
@@ -124,8 +162,29 @@ def main(argv):
     return 0
 
 
+def update_and_print_bindings(bindings, arp):
+    """Update the specified bindings dictionary with the given ARP packet."""
+    for mac, ip in arp.bindings():
+        if mac in bindings:
+            if bindings[mac] != ip:
+                bindings[mac] = ip
+                print("%s,%s,1" % (str(mac).replace('-', ':').lower(), ip))
+        else:
+            bindings[mac] = ip
+            print("%s,%s,0" % (str(mac).replace('-', ':').lower(), ip))
+
+
 def observe_arp_packets(
         debug=False, verbose=False, bindings=False):
+    """Read stdin and look for tcpdump-style ARP output.
+
+    :param debug: Output debug information.
+    :type debug: bool
+    :param verbose: Output text-based ARP packet details.
+    :type verbose: bool
+    :param bindings: Track (MAC, IP) bindings, and print new/update bindings.
+    :type bindings: bool
+    """
     length = None
     length_remain = 0
     pkt_bytes = b''
@@ -202,19 +261,7 @@ def observe_arp_packets(
                     arp = ARP(
                         pkt_bytes, time=time, src_mac=src_mac, dst_mac=dst_mac)
                     if bindings is not None:
-                        for mac, ip in arp.bindings():
-                            if int(ip) != 0:
-                                if mac in bindings:
-                                    if bindings[mac] != ip:
-                                        bindings[mac] = ip
-                                        print("%s,%s,1" % (
-                                            str(mac).replace(
-                                                '-', ':').lower(), ip))
-                                else:
-                                    bindings[mac] = ip
-                                    print("%s,%s,0" % (
-                                        str(mac).replace(
-                                            '-', ':').lower(), ip))
+                        update_and_print_bindings(bindings, arp)
                     if verbose:
                         arp.write()
                         sys.stdout.write('\n')
