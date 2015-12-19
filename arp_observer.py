@@ -211,7 +211,7 @@ def observe_arp_packets(
                         pkt_bytes, time=time, src_mac=src_mac, dst_mac=dst_mac)
                     if bindings is not None:
                         for mac, ip in arp.bindings():
-                            if mac is not None:
+                            if int(ip) != 0:
                                 if mac in bindings:
                                     if bindings[mac] != ip:
                                         bindings[mac] = ip
