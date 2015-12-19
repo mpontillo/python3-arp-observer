@@ -127,7 +127,7 @@ class ARP:
         out.write("Target hardware address: %s\n" % str(
             self.target_eui).replace('-', ':').lower())
         out.write("Target protocol address: %s\n" % self.target_ip)
-        out.write("")
+        out.write("\n")
 
 
 def main(argv):
@@ -264,7 +264,6 @@ def observe_arp_packets(
                         update_and_print_bindings(bindings, arp)
                     if verbose:
                         arp.write()
-                        sys.stdout.write('\n')
                 if length_remain < 0:
                     length = None
 
