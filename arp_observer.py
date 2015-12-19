@@ -68,39 +68,33 @@ class ARP:
             yield (self.source_eui, self.source_ip)
             yield (self.target_eui, self.target_ip)
 
-    def print(self):
+    def write(self, out=sys.stdout):
         if self.time is not None:
-            print("ARP observed at %s:" % self.time)
+            out.write("ARP observed at %s:\n" % self.time)
         if self.src_mac is not None:
-            print("        Ethernet source: %s" % self.src_mac)
+            out.write("        Ethernet source: %s\n" % self.src_mac)
         if self.dst_mac is not None:
-            print("   Ethernet destination: %s" % self.dst_mac)
+            out.write("   Ethernet destination: %s\n" % self.dst_mac)
 
-        print("          Hardware type: 0x%04x" % self.hardware_type)
-        print("          Protocol type: 0x%04x" % self.protocol_type)
-        print("Hardware address length: %d" % self.hardware_length)
-        print("Protocol address length: %d" % self.protocol_length)
+        out.write("          Hardware type: 0x%04x\n" % self.hardware_type)
+        out.write("          Protocol type: 0x%04x\n" % self.protocol_type)
+        out.write("Hardware address length: %d\n" % self.hardware_length)
+        out.write("Protocol address length: %d\n" % self.protocol_length)
         if self.operation == 1:
             operation_str = ' (request)'
         elif self.operation == 2:
             operation_str = ' (reply)'
         else:
             operation_str = ''
-        print("              Operation: %d%s" %
-              (self.operation, operation_str))
-        sender_mac = netaddr.EUI(
-            int(codecs.encode(self.sender_hardware_bytes, 'hex'), 16))
-        print("Sender hardware address: %s" % str(
-            sender_mac).replace('-', ':').lower())
-        sender_ip = netaddr.IPAddress(self.sender_protocol_bytes)
-        print("Sender protocol address: %s" % sender_ip)
-        target_mac = netaddr.EUI(
-            int(codecs.encode(self.target_hardware_bytes, 'hex'), 16))
-        print("Target hardware address: %s" % str(
-            target_mac).replace('-', ':').lower())
-        sender_ip = netaddr.IPAddress(self.target_protocol_bytes)
-        print("Target protocol address: %s" % sender_ip)
-        print("")
+        out.write("              Operation: %d%s\n" % (
+            self.operation, operation_str))
+        out.write("Sender hardware address: %s\n" % str(
+            self.source_eui).replace('-', ':').lower())
+        out.write("Sender protocol address: %s\n" % self.source_ip)
+        out.write("Target hardware address: %s\n" % str(
+            self.target_eui).replace('-', ':').lower())
+        out.write("Target protocol address: %s\n" % self.target_ip)
+        out.write("")
 
 
 def main(argv):
@@ -111,29 +105,27 @@ def main(argv):
               "2> /dev/null | %s [args]" % (argv[0]))
         print("")
         print("Arguments:")
-        print("    -v --verbose  Print each line of input (from tcpdump).")
+        print("    -v --verbose  Print each ARP packet.")
         print("    -d --debug    Print additional debugging information.")
-        print("    -t --text     Print each ARP packet in text format..")
+        print("    -b --bindings Track each (MAC,IP) binding and print new\n"
+              "                  or changed bindings to stdout.")
         return 1
     verbose = False
     debug = False
-    show_text = False
     bindings = False
     if '-v' in argv or '--verbose' in argv:
         verbose = True
     if '-d' in argv or '--debug' in argv:
         debug = True
-    if '-p' in argv or '--print' in argv:
-        show_text = True
-    if '-b' in argv or '--print-bindings' in argv:
+    if '-b' in argv or '--bindings' in argv:
         bindings = True
     observe_arp_packets(
-        debug=debug, verbose=verbose, show_text=show_text, bindings=bindings)
+        debug=debug, verbose=verbose, bindings=bindings)
     return 0
 
 
 def observe_arp_packets(
-        debug=False, verbose=False, show_text=False, bindings=False):
+        debug=False, verbose=False, bindings=False):
     length = None
     length_remain = 0
     pkt_bytes = b''
@@ -149,7 +141,7 @@ def observe_arp_packets(
         line = sys.stdin.readline().strip()
         if not line:
             exit(1)
-        if verbose:
+        if debug:
             print(line)
         if not line.startswith('0x'):
             packet = line.split(': ')
@@ -193,7 +185,7 @@ def observe_arp_packets(
             try:
                 length = int(data[-1])
                 length_remain = length
-                if verbose:
+                if debug:
                     print("    Expecting packet of length: %d" % length)
             except ValueError:
                 length = None
@@ -215,14 +207,17 @@ def observe_arp_packets(
                                 if mac in bindings:
                                     if bindings[mac] != ip:
                                         bindings[mac] = ip
-                                        print("(%s, %s) updated" % (
-                                            str(mac).replace('-', ':'), ip))
+                                        print("%s,%s,1" % (
+                                            str(mac).replace(
+                                                '-', ':').lower(), ip))
                                 else:
                                     bindings[mac] = ip
-                                    print("(%s, %s)" % (
-                                        str(mac).replace('-', ':'), ip))
-                    if show_text:
-                        arp.print()
+                                    print("%s,%s,0" % (
+                                        str(mac).replace(
+                                            '-', ':').lower(), ip))
+                    if verbose:
+                        arp.write()
+                        sys.stdout.write('\n')
                 if length_remain < 0:
                     length = None
 
