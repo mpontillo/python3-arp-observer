@@ -8,6 +8,28 @@ import struct
 import sys
 
 
+def bytes_to_hex(byte_string):
+    """Utility function to convert the the specified `bytes` object into
+    a string of hex characters."""
+    return codecs.encode(byte_string, 'hex')
+
+
+def bytes_to_int(byte_string):
+    """Utility function to convert the specified string of bytes into
+    an `int`."""
+    return int(bytes_to_hex(byte_string), 16)
+
+
+def hex_str_to_bytes(data):
+    """Strips spaces, '-', and ':' characters out of the specified string,
+    and (assuming the characters that remain are hex digits) returns an
+    equivalent `bytes` object."""
+    data = data.replace(':', '')
+    data = data.replace('-', '')
+    data = data.replace(' ', '')
+    return bytes.fromhex(data)
+
+
 class ARP:
     """Representation of an ARP packet."""
 
@@ -42,13 +64,13 @@ class ARP:
     def source_eui(self):
         """Returns a netaddr.EUI representing the source MAC address."""
         return netaddr.EUI(
-            int(codecs.encode(self.sender_hardware_bytes, 'hex'), 16))
+            bytes_to_int(self.sender_hardware_bytes))
 
     @property
     def target_eui(self):
         """Returns a netaddr.EUI representing the target MAC address."""
         return netaddr.EUI(
-            int(codecs.encode(self.target_hardware_bytes, 'hex'), 16))
+            bytes_to_int(self.target_hardware_bytes))
 
     @property
     def source_ip(self):
@@ -84,7 +106,7 @@ class ARP:
             # We can find a binding in the (source_eui, source_ip)
             source_ip = self.source_ip
             if int(source_ip) != 0:
-                yield (self.source_eui, source_ip)
+                yield (source_ip, self.source_eui)
         elif self.operation == 2:
             # This is an ARP reply.
             # We can find a binding in both the (source_eui, source_ip) and
@@ -92,9 +114,9 @@ class ARP:
             source_ip = self.source_ip
             target_ip = self.target_ip
             if int(source_ip) != 0:
-                yield (self.source_eui, source_ip)
+                yield (source_ip, self.source_eui)
             if int(target_ip) != 0:
-                yield (self.target_eui, target_ip)
+                yield (target_ip, self.target_eui)
 
     def write(self, out=sys.stdout):
         """Output text-based details about this ARP packet to the specified
@@ -164,14 +186,18 @@ def main(argv):
 
 def update_and_print_bindings(bindings, arp):
     """Update the specified bindings dictionary with the given ARP packet."""
-    for mac, ip in arp.bindings():
-        if mac in bindings:
-            if bindings[mac] != ip:
-                bindings[mac] = ip
-                print("%s,%s,1" % (str(mac).replace('-', ':').lower(), ip))
+    for ip, mac in arp.bindings():
+        if ip in bindings:
+            # Binding already exists. Update it (and set the 'updated' flag
+            # to 1 when outputting the CSV.)
+            if bindings[ip] != mac:
+                bindings[ip] = mac
+                print("{ip},{mac},1".format(
+                    ip=ip, mac=str(mac).replace('-', ':').lower()))
         else:
-            bindings[mac] = ip
-            print("%s,%s,0" % (str(mac).replace('-', ':').lower(), ip))
+            bindings[ip] = mac
+            print("{ip},{mac},0".format(
+                ip=ip, mac=str(mac).replace('-', ':').lower()))
 
 
 def observe_arp_packets(
@@ -190,7 +216,10 @@ def observe_arp_packets(
     pkt_bytes = b''
     time = None
     src_mac = None
+    src_mac_bytes = None
     dst_mac = None
+    dst_mac_bytes = None
+    arp_ethertype = hex_str_to_bytes('0806')
     if bindings:
         bindings = dict()
     else:
@@ -220,7 +249,9 @@ def observe_arp_packets(
                 # being used, and we have the information from the link layer
                 # header.
                 src_mac = header[1]
+                src_mac_bytes = hex_str_to_bytes(src_mac)
                 dst_mac = header[3]
+                dst_mac_bytes = hex_str_to_bytes(dst_mac)
             elif ':' in header[2]:
                 # Header is like:
                 # 18:07:50.087391  In 00:24:a5:af:24:85 ethertype ARP (0x0806)
@@ -232,6 +263,10 @@ def observe_arp_packets(
                     # Could be "In"; not sure what else.
                     dst_mac = None
                     src_mac = header[2]
+                # When the output is in this format, we can't know these values
+                # for sure.
+                src_mac_bytes = None
+                dst_mac_bytes = None
 
             # Data will be a string like:
             # Reply 172.16.42.1 is-at 00:24:a5:af:24:85, length 46
@@ -254,18 +289,27 @@ def observe_arp_packets(
             # 0x0020:  0000 0000 0000 0000 0000 0000 0000
             data = line.split(':')
             if len(data) == 2:
-                new_bytes = bytes.fromhex(data[1].replace(' ', ''))
+                new_bytes = hex_str_to_bytes(data[1])
                 length_remain -= len(new_bytes)
                 pkt_bytes += new_bytes
-                if length_remain == 0:
+                # If we got more bytes than we expected, it's probably just
+                # padding. But it could be that tcpdump wrote the Ethernet
+                # header, when we weren't expecting it to.
+                # So if we can figure out that the Ethernet header
+                # is tacked onto the front, strip it off.
+                if src_mac_bytes is not None and dst_mac_bytes is not None:
+                    eth_header = (
+                        dst_mac_bytes + src_mac_bytes + arp_ethertype)
+                    if pkt_bytes[:14] == eth_header:
+                        pkt_bytes = pkt_bytes[14:]
+                        length_remain += 14
+                if length_remain <= 0:
                     arp = ARP(
                         pkt_bytes, time=time, src_mac=src_mac, dst_mac=dst_mac)
                     if bindings is not None:
                         update_and_print_bindings(bindings, arp)
                     if verbose:
                         arp.write()
-                if length_remain < 0:
-                    length = None
 
 if __name__ == '__main__':
     sys.exit(main(sys.argv))
