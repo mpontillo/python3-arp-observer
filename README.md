@@ -23,6 +23,7 @@ Dependencies
 
 ### Ubuntu
 
+Ubuntu 14.04 LTS "Trusty Tahr"
 Ubuntu 16.04 LTS "Xenial Xerus"
 
     apt-get install python3-netaddr
