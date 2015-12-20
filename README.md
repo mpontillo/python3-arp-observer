@@ -23,15 +23,20 @@ Dependencies
 
 ### Ubuntu
 
-Ubuntu 14.04 LTS "Trusty Tahr"
-Ubuntu 16.04 LTS "Xenial Xerus"
+* Ubuntu 14.04 LTS "Trusty Tahr"
+* Ubuntu 16.04 LTS "Xenial Xerus"
+
+To install the dependencies:
 
     apt-get install python3-netaddr
     apt-get install tcpdump
 
 ### OS X (homebrew)
 
-OS X 10.11.2 "El Capitan"
+* OS X 10.11.2 "El Capitan"
+
+To install the dependencies (Xcode required):
+
 
     brew install python3
     pip3 install netaddr
